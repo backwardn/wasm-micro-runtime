@@ -33,6 +33,7 @@ endif ()
 
 if (NOT DEFINED WAMR_BUILD_AOT)
   # Disable AOT by default.
+  # If enabling AOT, please install Intel SGX SDKv2.8 or later.
   set (WAMR_BUILD_AOT 0)
 endif ()
 
