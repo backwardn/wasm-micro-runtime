@@ -109,17 +109,11 @@ void wgl_native_func_call(wasm_module_inst_t module_inst,
                           WGLNativeFuncDef *funcs,
                           uint32 size,
                           int32 func_id,
-                          uint32 argv_offset,
+                          uint32 *argv,
                           uint32 argc)
 {
     WGLNativeFuncDef *func_def = funcs;
     WGLNativeFuncDef *func_def_end = func_def + size;
-    uint32 *argv;
-
-    if (!validate_app_addr(argv_offset, argc * sizeof(uint32)))
-        return;
-
-    argv = addr_app_to_native(argv_offset);
 
     while (func_def < func_def_end) {
         if (func_def->func_id == func_id) {
@@ -130,7 +124,7 @@ void wgl_native_func_call(wasm_module_inst_t module_inst,
             argc1++; /* module_inst */
             argc1 += func_def->arg_num;
             if (argc1 > 16) {
-                argv_copy = (intptr_t *)bh_malloc(func_def->arg_num *
+                argv_copy = (intptr_t *)wasm_runtime_malloc(func_def->arg_num *
                                                   sizeof(intptr_t));
                 if (argv_copy == NULL)
                     return;
@@ -196,14 +190,14 @@ void wgl_native_func_call(wasm_module_inst_t module_inst,
             }
 
             if (argv_copy != argv_copy_buf)
-                bh_free(argv_copy);
+                wasm_runtime_free(argv_copy);
 
             /* success return */
             return;
 
         fail:
             if (argv_copy != argv_copy_buf)
-                bh_free(argv_copy);
+                wasm_runtime_free(argv_copy);
             return;
         }
 

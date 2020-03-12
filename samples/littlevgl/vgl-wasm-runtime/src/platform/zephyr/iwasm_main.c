@@ -10,11 +10,13 @@
 #include "bh_common.h"
 #include "bh_queue.h"
 #include "bh_thread.h"
-#include "bh_memory.h"
 #include "runtime_sensor.h"
 #include "bi-inc/attr_container.h"
 #include "module_wasm_app.h"
 #include "wasm_export.h"
+#include "sensor_native_api.h"
+#include "connection_native_api.h"
+#include "display_indev.h"
 
 #include <zephyr.h>
 #include <drivers/uart.h>
@@ -30,7 +32,6 @@ int uart_char_cnt = 0;
 static void uart_irq_callback(struct device *dev)
 {
     unsigned char ch;
-    int size = 0;
 
     while (uart_poll_in(dev, &ch) == 0) {
         uart_char_cnt++;
@@ -77,22 +78,37 @@ timer_ctx_t timer_ctx;
 
 static char global_heap_buf[370 * 1024] = { 0 };
 
-extern void display_init(void);
+static NativeSymbol native_symbols[] = {
+    EXPORT_WASM_API_WITH_SIG(display_input_read, "(*)i"),
+    EXPORT_WASM_API_WITH_SIG(display_flush, "(iiii*)"),
+    EXPORT_WASM_API_WITH_SIG(display_fill, "(iiii*)"),
+    EXPORT_WASM_API_WITH_SIG(display_vdb_write, "(*iii*i)"),
+    EXPORT_WASM_API_WITH_SIG(display_map, "(iiii*)"),
+    EXPORT_WASM_API_WITH_SIG(time_get_ms, "()i")
+};
 
 int iwasm_main()
 {
+    RuntimeInitArgs init_args;
     korp_thread tid, tm_tid;
+    uint32 n_native_symbols;
 
     host_init();
 
-    if (bh_memory_init_with_pool(global_heap_buf, sizeof(global_heap_buf))
-            != 0) {
-        printf("Init global heap failed.\n");
-        return -1;
-    }
+    memset(&init_args, 0, sizeof(RuntimeInitArgs));
 
-    if (vm_thread_sys_init() != 0) {
-        goto fail1;
+    init_args.mem_alloc_type = Alloc_With_Pool;
+    init_args.mem_alloc_option.pool.heap_buf = global_heap_buf;
+    init_args.mem_alloc_option.pool.heap_size = sizeof(global_heap_buf);
+
+    init_args.native_module_name = "env";
+    init_args.n_native_symbols = sizeof(native_symbols) / sizeof(NativeSymbol);
+    init_args.native_symbols = native_symbols;
+
+    /* initialize runtime environment */
+    if (!wasm_runtime_full_init(&init_args)) {
+        bh_printf("Init runtime environment failed.\n");
+        return -1;
     }
 
     display_init();
@@ -103,7 +119,6 @@ int iwasm_main()
     // TODO:
     app_manager_startup(&interface);
 
-fail1:
-    bh_memory_destroy();
+    wasm_runtime_destroy();
     return -1;
 }

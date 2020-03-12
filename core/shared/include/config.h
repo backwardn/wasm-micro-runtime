@@ -80,6 +80,10 @@ enum {
 #define WASM_ENABLE_BASE_LIB 0
 #endif
 
+#ifndef WASM_ENABLE_APP_FRAMEWORK
+#define WASM_ENABLE_APP_FRAMEWORK 0
+#endif
+
 /* WASM log system */
 #ifndef WASM_ENABLE_LOG
 #define WASM_ENABLE_LOG 1
@@ -93,6 +97,13 @@ enum {
 
 /* WASM Interpreter labels-as-values feature */
 #define WASM_ENABLE_LABELS_AS_VALUES 1
+
+#if WASM_ENABLE_FAST_INTERP != 0
+#define WASM_ENABLE_ABS_LABEL_ADDR 1
+#define WASM_DEBUG_PREPROCESSOR 0
+#else
+#define WASM_ENABLE_ABS_LABEL_ADDR 0
+#endif
 
 /* Heap and stack profiling */
 #define BEIHAI_ENABLE_MEMORY_PROFILING 0
@@ -148,8 +159,8 @@ enum {
 #define APP_THREAD_STACK_SIZE_MIN (16 * 1024)
 #define APP_THREAD_STACK_SIZE_MAX (256 * 1024)
 #else
-#define APP_THREAD_STACK_SIZE_DEFAULT (4 * 1024)
-#define APP_THREAD_STACK_SIZE_MIN (2 * 1024)
+#define APP_THREAD_STACK_SIZE_DEFAULT (6 * 1024)
+#define APP_THREAD_STACK_SIZE_MIN (4 * 1024)
 #define APP_THREAD_STACK_SIZE_MAX (256 * 1024)
 #endif
 

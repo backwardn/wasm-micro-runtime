@@ -8,6 +8,7 @@
 
 #include <inttypes.h>
 #include <stdbool.h>
+#include "lib_export.h"
 
 
 #ifdef __cplusplus
@@ -24,21 +25,19 @@ struct WASMModuleInstanceCommon;
 typedef struct WASMModuleInstanceCommon *wasm_module_inst_t;
 
 /* Function instance */
-struct WASMFunctionInstanceCommon;
-typedef struct WASMFunctionInstanceCommon *wasm_function_inst_t;
+typedef void WASMFunctionInstanceCommon;
+typedef WASMFunctionInstanceCommon *wasm_function_inst_t;
 
 /* WASM section */
-typedef struct wasm_section {
-    struct wasm_section *next;
+typedef struct wasm_section_t {
+    struct wasm_section_t *next;
     /* section type */
     int section_type;
     /* section body, not include type and size */
     uint8_t *section_body;
     /* section body size */
     uint32_t section_body_size;
-} wasm_section_t, *wasm_section_list_t;
-
-typedef wasm_section_t aot_section_t, *aot_section_list_t;
+} wasm_section_t, aot_section_t, *wasm_section_list_t, *aot_section_list_t;
 
 /* Execution environment, e.g. stack info */
 struct WASMExecEnv;
@@ -51,8 +50,45 @@ typedef enum {
     Package_Type_Unknown = 0xFFFF
 } package_type_t;
 
+/* Memory allocator type */
+typedef enum {
+    /* pool mode, allocate memory from user defined heap buffer */
+    Alloc_With_Pool = 0,
+    /* user allocator mode, allocate memory from user defined
+       malloc function */
+    Alloc_With_Allocator,
+    /* system allocator mode, allocate memory from system allocator,
+       or, platform's os_malloc function */
+    Alloc_With_System_Allocator,
+} mem_alloc_type_t;
+
+/* Memory allocator option */
+typedef union MemAllocOption {
+    struct {
+        void *heap_buf;
+        uint32_t heap_size;
+    } pool;
+    struct {
+        void *malloc_func;
+        void *realloc_func;
+        void *free_func;
+    } allocator;
+} MemAllocOption;
+
+/* WASM runtime initialize arguments */
+typedef struct RuntimeInitArgs {
+    mem_alloc_type_t mem_alloc_type;
+    MemAllocOption mem_alloc_option;
+
+    const char *native_module_name;
+    NativeSymbol *native_symbols;
+    uint32_t n_native_symbols;
+} RuntimeInitArgs;
+
 /**
- * Initialize the WASM runtime environment.
+ * Initialize the WASM runtime environment, and also initialize
+ * the memory allocator with system allocator, which calls os_malloc
+ * to allocate memory
  *
  * @return true if success, false otherwise
  */
@@ -60,10 +96,48 @@ bool
 wasm_runtime_init();
 
 /**
+ * Initialize the WASM runtime environment, and also initialize
+ * the memory allocator and register native symbols, which are specified
+ * with init arguments
+ *
+ * @param init_args specifies the init arguments
+ *
+ * @return return true if success, false otherwise
+ */
+bool
+wasm_runtime_full_init(RuntimeInitArgs *init_args);
+
+/**
  * Destroy the WASM runtime environment.
  */
 void
 wasm_runtime_destroy();
+
+/**
+ * Allocate memory from runtime memory environment.
+ *
+ * @param size bytes need to allocate
+ *
+ * @return the pointer to memory allocated
+ */
+void *
+wasm_runtime_malloc(unsigned int size);
+
+/**
+ * Reallocate memory from runtime memory environment
+ *
+ * @param ptr the original memory
+ * @param size bytes need to reallocate
+ *
+ * @return the pointer to memory reallocated
+ */
+void *
+wasm_runtime_realloc(void *ptr, unsigned int size);
+
+/*
+ * Free memory to runtime memory environment.
+ */
+void wasm_runtime_free(void *ptr);
 
 /**
  * Get the package type of a buffer.
@@ -161,13 +235,12 @@ wasm_runtime_lookup_wasi_start_function(wasm_module_inst_t module_inst);
  *
  * @param module_inst the module instance
  * @param name the name of the function
- * @param signature the signature of the function, use "i32"/"i64"/"f32"/"f64"
- *        to represent the type of i32/i64/f32/f64, e.g. "(i32i64)" "(i32)f32"
+ * @param signature the signature of the function, ignored currently
  *
  * @return the function instance found
  */
 wasm_function_inst_t
-wasm_runtime_lookup_function(const wasm_module_inst_t module_inst,
+wasm_runtime_lookup_function(wasm_module_inst_t const module_inst,
                              const char *name, const char *signature);
 
 /**
@@ -293,6 +366,8 @@ wasm_runtime_get_custom_data(wasm_module_inst_t module_inst);
  *
  * @param module_inst the WASM module instance which contains heap
  * @param size the size bytes to allocate
+ * @param p_native_addr return native address of the allocated memory
+ *        if it is not NULL, and return NULL if memory malloc failed
  *
  * @return the allocated memory address, which is a relative offset to the
  *         base address of the module instance's memory space, the value range
@@ -300,7 +375,8 @@ wasm_runtime_get_custom_data(wasm_module_inst_t module_inst);
  *         Return non-zero if success, zero if failed.
  */
 int32_t
-wasm_runtime_module_malloc(wasm_module_inst_t module_inst, uint32_t size);
+wasm_runtime_module_malloc(wasm_module_inst_t module_inst, uint32_t size,
+                           void **p_native_addr);
 
 /**
  * Free memory to the heap of WASM module instance
@@ -431,6 +507,36 @@ wasm_runtime_get_native_addr_range(wasm_module_inst_t module_inst,
                                    uint8_t *native_ptr,
                                    uint8_t **p_native_start_addr,
                                    uint8_t **p_native_end_addr);
+
+/**
+  * Register native functions with same module name
+  *
+  * @param module_name the module name of the native functions
+  * @param native_symbols specifies an array of NativeSymbol structures which
+  *        contain the names, function pointers and signatures
+  *        Note: WASM runtime will not allocate memory to clone the data, so
+  *              user must ensure the array can be used forever
+  *        Meanings of letters in function signature:
+  *          'i': the parameter is i32 type
+  *          'I': the parameter is i64 type
+  *          'f': the parameter is f32 type
+  *          'F': the parameter is f64 type
+  *          '*': the parameter is a pointer (i32 in WASM), and runtime will
+  *               auto check its boundary before calling the native function.
+  *               If it is followed by '~', the checked length of the pointer
+  *               is gotten from the following parameter, if not, the checked
+  *               length of the pointer is 1.
+  *          '~': the parameter is the pointer's length with i32 type, and must
+  *               follow after '*'
+  *          '$': the parameter is a string (i32 in WASM), and runtime will
+  *               auto check its boundary before calling the native function
+  * @param n_native_symbols specifies the number of native symbols in the array
+  *
+  * @return true if success, false otherwise
+  */
+bool wasm_runtime_register_natives(const char *module_name,
+                                   NativeSymbol *native_symbols,
+                                   uint32_t n_native_symbols);
 
 #ifdef __cplusplus
 }

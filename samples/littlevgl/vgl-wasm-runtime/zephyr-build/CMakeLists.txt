@@ -10,6 +10,9 @@ set (WAMR_BUILD_PLATFORM "zephyr")
 
 enable_language (ASM)
 
+add_definitions(-DWA_MALLOC=wasm_runtime_malloc)
+add_definitions(-DWA_FREE=wasm_runtime_free)
+
 # Build as THUMB by default
 # change to "ARM[sub]", "THUMB[sub]", "X86_32", "MIPS_32" or "XTENSA_32"
 # if we want to support arm_32, x86, mips or xtensa
@@ -65,5 +68,4 @@ target_sources(app PRIVATE
                ${LVGL_DRV_SRCS}
                ${CMAKE_CURRENT_SOURCE_DIR}/../src/platform/zephyr/main.c
                ${CMAKE_CURRENT_SOURCE_DIR}/../src/platform/zephyr/iwasm_main.c
-               ${CMAKE_CURRENT_SOURCE_DIR}/../src/ext_lib_export.c
               )

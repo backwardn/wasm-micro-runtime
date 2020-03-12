@@ -52,6 +52,11 @@ if (NOT DEFINED WAMR_BUILD_LIBC_WASI)
   set (WAMR_BUILD_LIBC_WASI 1)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_FAST_INTERP)
+  # Enable fast interpreter
+  set (WAMR_BUILD_FAST_INTERP 1)
+endif ()
+
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
@@ -76,7 +81,7 @@ endif ()
 #set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstack-protector-strong --param ssp-buffer-size=4")
 #set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-z,noexecstack,-z,relro,-z,now")
 
-add_executable (iwasm main.c ext_lib_export.c)
+add_executable (iwasm main.c)
 
 install (TARGETS iwasm DESTINATION bin)
 

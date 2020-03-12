@@ -137,6 +137,8 @@ typedef struct WASMFunctionImport {
     WASMType *func_type;
     /* function pointer after linked */
     void *func_ptr_linked;
+  /* signature from registered native symbols */
+    const char *signature;
 } WASMFunctionImport;
 
 typedef struct WASMGlobalImport {
@@ -187,6 +189,12 @@ typedef struct WASMFunction {
     bool has_op_func_call;
     uint32 code_size;
     uint8 *code;
+#if WASM_ENABLE_FAST_INTERP != 0
+    uint32 code_compiled_size;
+    uint8 *code_compiled;
+    uint8 *consts;
+    uint32 const_cell_num;
+#endif
 } WASMFunction;
 
 typedef struct WASMGlobal {
@@ -229,7 +237,7 @@ typedef struct WASIArguments {
     uint32 map_dir_count;
     const char **env;
     uint32 env_count;
-    const char **argv;
+    char **argv;
     uint32 argc;
 } WASIArguments;
 #endif
@@ -288,8 +296,7 @@ typedef struct WASMModule {
        auxiliary stack top pointer */
     uint32 llvm_aux_stack_global_index;
 
-    /* Whether there is possible memory grow, e.g.
-       memory.grow opcode or call enlargeMemory */
+    /* Whether there is possible memory grow, e.g. memory.grow opcode */
     bool possible_memory_grow;
 
     StringList const_str_list;

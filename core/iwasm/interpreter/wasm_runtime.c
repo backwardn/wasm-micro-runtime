@@ -51,10 +51,10 @@ memories_deinstantiate(WASMMemoryInstance **memories, uint32 count)
             if (memories[i]) {
                 if (memories[i]->heap_handle)
                     mem_allocator_destroy(memories[i]->heap_handle);
-                wasm_free(memories[i]->heap_data);
-                wasm_free(memories[i]);
+                wasm_runtime_free(memories[i]->heap_data);
+                wasm_runtime_free(memories[i]);
             }
-        wasm_free(memories);
+        wasm_runtime_free(memories);
   }
 }
 
@@ -72,7 +72,7 @@ memory_instantiate(uint32 num_bytes_per_page,
 
     /* Allocate memory space, addr data and global data */
     if (total_size >= UINT32_MAX
-        || !(memory = wasm_malloc((uint32)total_size))) {
+        || !(memory = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate memory failed: allocate memory failed.");
         return NULL;
@@ -92,7 +92,7 @@ memory_instantiate(uint32 num_bytes_per_page,
     memory->end_addr = memory->global_data + global_data_size;
 
     /* Allocate heap space */
-    if (!(memory->heap_data = wasm_malloc(heap_size))) {
+    if (!(memory->heap_data = wasm_runtime_malloc(heap_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate memory failed: allocate memory failed.");
         goto fail1;
@@ -114,10 +114,10 @@ memory_instantiate(uint32 num_bytes_per_page,
     return memory;
 
 fail2:
-    wasm_free(memory->heap_data);
+    wasm_runtime_free(memory->heap_data);
 
 fail1:
-    wasm_free(memory);
+    wasm_runtime_free(memory);
     return NULL;
 }
 
@@ -141,7 +141,7 @@ memories_instantiate(const WASMModule *module,
     total_size = sizeof(WASMMemoryInstance*) * (uint64)memory_count;
 
     if (total_size >= UINT32_MAX
-        || !(memories = wasm_malloc((uint32)total_size))) {
+        || !(memories = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate memory failed: "
                       "allocate memory failed.");
@@ -210,8 +210,8 @@ tables_deinstantiate(WASMTableInstance **tables, uint32 count)
     if (tables) {
         for (i = 0; i < count; i++)
             if (tables[i])
-                wasm_free(tables[i]);
-        wasm_free(tables);
+                wasm_runtime_free(tables[i]);
+        wasm_runtime_free(tables);
     }
 }
 
@@ -229,7 +229,7 @@ tables_instantiate(const WASMModule *module,
     WASMTableInstance **tables, *table;
 
     if (total_size >= UINT32_MAX
-        || !(tables = wasm_malloc((uint32)total_size))) {
+        || !(tables = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate table failed: "
                       "allocate memory failed.");
@@ -244,7 +244,8 @@ tables_instantiate(const WASMModule *module,
         total_size = offsetof(WASMTableInstance, base_addr) +
                      sizeof(uint32) * (uint64)import->u.table.init_size;
         if (total_size >= UINT32_MAX
-            || !(table = tables[table_index++] = wasm_malloc((uint32)total_size))) {
+            || !(table = tables[table_index++] =
+                        wasm_runtime_malloc((uint32)total_size))) {
             set_error_buf(error_buf, error_buf_size,
                           "Instantiate table failed: "
                           "allocate memory failed.");
@@ -264,7 +265,8 @@ tables_instantiate(const WASMModule *module,
         total_size = offsetof(WASMTableInstance, base_addr) +
                      sizeof(uint32) * (uint64)module->tables[i].init_size;
         if (total_size >= UINT32_MAX
-            || !(table = tables[table_index++] = wasm_malloc((uint32)total_size))) {
+            || !(table = tables[table_index++] =
+                        wasm_runtime_malloc((uint32)total_size))) {
             set_error_buf(error_buf, error_buf_size,
                           "Instantiate table failed: "
                           "allocate memory failed.");
@@ -290,7 +292,7 @@ static void
 functions_deinstantiate(WASMFunctionInstance *functions, uint32 count)
 {
     if (functions) {
-        wasm_free(functions);
+        wasm_runtime_free(functions);
     }
 }
 
@@ -308,7 +310,7 @@ functions_instantiate(const WASMModule *module,
     WASMFunctionInstance *functions, *function;
 
     if (total_size >= UINT32_MAX
-        || !(functions = wasm_malloc((uint32)total_size))) {
+        || !(functions = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate function failed: "
                       "allocate memory failed.");
@@ -355,6 +357,10 @@ functions_instantiate(const WASMModule *module,
 
         function->local_offsets = function->u.func->local_offsets;
 
+#if WASM_ENABLE_FAST_INTERP != 0
+        function->const_cell_num = function->u.func->const_cell_num;
+#endif
+
         function++;
     }
 
@@ -369,7 +375,7 @@ static void
 globals_deinstantiate(WASMGlobalInstance *globals)
 {
     if (globals)
-        wasm_free(globals);
+        wasm_runtime_free(globals);
 }
 
 /**
@@ -388,7 +394,7 @@ globals_instantiate(const WASMModule *module,
     WASMGlobalInstance *globals, *global;
 
     if (total_size >= UINT32_MAX
-        || !(globals = wasm_malloc((uint32)total_size))) {
+        || !(globals = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate global failed: "
                       "allocate memory failed.");
@@ -501,7 +507,7 @@ static void
 export_functions_deinstantiate(WASMExportFuncInstance *functions)
 {
     if (functions)
-        wasm_free(functions);
+        wasm_runtime_free(functions);
 }
 
 /**
@@ -519,7 +525,7 @@ export_functions_instantiate(const WASMModule *module,
     uint64 total_size = sizeof(WASMExportFuncInstance) * (uint64)export_func_count;
 
     if (total_size >= UINT32_MAX
-        || !(export_func = export_funcs = wasm_malloc((uint32)total_size))) {
+        || !(export_func = export_funcs = wasm_runtime_malloc((uint32)total_size))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate export function failed: "
                       "allocate memory failed.");
@@ -619,7 +625,7 @@ wasm_instantiate(WASMModule *module,
         return NULL;
 
     /* Allocate the memory */
-    if (!(module_inst = wasm_malloc((uint32)sizeof(WASMModuleInstance)))) {
+    if (!(module_inst = wasm_runtime_malloc((uint32)sizeof(WASMModuleInstance)))) {
         set_error_buf(error_buf, error_buf_size,
                       "Instantiate module failed: allocate memory failed.");
         globals_deinstantiate(globals);
@@ -846,65 +852,7 @@ wasm_deinstantiate(WASMModuleInstance *module_inst)
     globals_deinstantiate(module_inst->globals);
     export_functions_deinstantiate(module_inst->export_functions);
 
-    wasm_free(module_inst);
-}
-
-static bool
-check_type(uint8 type, const char *p)
-{
-    const char *str = "i32";
-
-    if (strlen(p) < 3)
-        return false;
-
-    switch (type) {
-        case VALUE_TYPE_I32:
-            str = "i32";
-            break;
-        case VALUE_TYPE_I64:
-            str = "i64";
-            break;
-        case VALUE_TYPE_F32:
-            str = "f32";
-            break;
-        case VALUE_TYPE_F64:
-            str = "f64";
-            break;
-    }
-    if (strncmp(p, str, 3))
-        return false;
-
-    return true;
-}
-
-static bool
-check_function_type(const WASMType *type, const char *signature)
-{
-    uint32 i;
-    const char *p = signature;
-
-    if (!p || *p++ != '(')
-        return false;
-
-    for (i = 0; i < type->param_count; i++) {
-        if (!check_type(type->types[i], p))
-            return false;
-        p += 3;
-    }
-
-    if (*p++ != ')')
-        return false;
-
-    if (type->result_count) {
-        if (!check_type(type->types[type->param_count], p))
-            return false;
-        p += 3;
-    }
-
-    if (*p != '\0')
-        return false;
-
-    return true;
+    wasm_runtime_free(module_inst);
 }
 
 WASMFunctionInstance*
@@ -913,11 +861,9 @@ wasm_lookup_function(const WASMModuleInstance *module_inst,
 {
     uint32 i;
     for (i = 0; i < module_inst->export_func_count; i++)
-        if (!strcmp(module_inst->export_functions[i].name, name)
-            && check_function_type(
-                module_inst->export_functions[i].function->u.func->func_type,
-                signature))
+        if (!strcmp(module_inst->export_functions[i].name, name))
             return module_inst->export_functions[i].function;
+    (void)signature;
     return NULL;
 }
 
@@ -972,10 +918,13 @@ wasm_get_exception(WASMModuleInstance *module_inst)
 }
 
 int32
-wasm_module_malloc(WASMModuleInstance *module_inst, uint32 size)
+wasm_module_malloc(WASMModuleInstance *module_inst, uint32 size,
+                   void **p_native_addr)
 {
     WASMMemoryInstance *memory = module_inst->default_memory;
     uint8 *addr = mem_allocator_malloc(memory->heap_handle, size);
+    if (p_native_addr)
+        *p_native_addr = addr;
     if (!addr) {
         wasm_set_exception(module_inst, "out of memory");
         return 0;
@@ -998,9 +947,10 @@ int32
 wasm_module_dup_data(WASMModuleInstance *module_inst,
                      const char *src, uint32 size)
 {
-    int32 buffer_offset = wasm_module_malloc(module_inst, size);
+    char *buffer;
+    int32 buffer_offset = wasm_module_malloc(module_inst, size,
+                                             (void**)&buffer);
     if (buffer_offset != 0) {
-        char *buffer;
         buffer = wasm_addr_app_to_native(module_inst, buffer_offset);
         bh_memcpy_s(buffer, size, src, size);
     }
@@ -1157,12 +1107,13 @@ bool
 wasm_enlarge_memory(WASMModuleInstance *module, uint32 inc_page_count)
 {
 #if WASM_ENABLE_MEMORY_GROW != 0
-    WASMMemoryInstance *memory = module->default_memory;
-    WASMMemoryInstance *new_memory;
+    WASMMemoryInstance *memory = module->default_memory, *new_memory;
+    uint32 old_page_count = memory->cur_page_count, total_size_old;
     uint32 total_page_count = inc_page_count + memory->cur_page_count;
     uint64 total_size = offsetof(WASMMemoryInstance, base_addr) +
                         memory->num_bytes_per_page * (uint64)total_page_count +
                         memory->global_data_size;
+    uint8 *global_data_old;
 
     if (inc_page_count <= 0)
         /* No need to enlarge memory */
@@ -1174,43 +1125,39 @@ wasm_enlarge_memory(WASMModuleInstance *module, uint32 inc_page_count)
         return false;
     }
 
-    if (total_size >= UINT32_MAX
-        || !(new_memory = wasm_malloc((uint32)total_size))) {
+    if (total_size >= UINT32_MAX) {
         wasm_set_exception(module, "fail to enlarge memory.");
         return false;
     }
 
-    new_memory->num_bytes_per_page = memory->num_bytes_per_page;
+    if (!(new_memory = wasm_runtime_realloc(memory, (uint32)total_size))) {
+        if (!(new_memory = wasm_runtime_malloc((uint32)total_size))) {
+            wasm_set_exception(module, "fail to enlarge memory.");
+            return false;
+        }
+        total_size_old = memory->end_addr - (uint8*)memory;
+        bh_memcpy_s((uint8*)new_memory, (uint32)total_size,
+                    (uint8*)memory, total_size_old);
+        memset((uint8*)new_memory + total_size_old,
+                0, (uint32)total_size - total_size_old);
+        wasm_runtime_free(memory);
+    }
+
     new_memory->cur_page_count = total_page_count;
-    new_memory->max_page_count = memory->max_page_count;
-
     new_memory->memory_data = new_memory->base_addr;
-
     new_memory->global_data = new_memory->memory_data +
-                              memory->num_bytes_per_page * total_page_count;
-    new_memory->global_data_size = memory->global_data_size;
+                              new_memory->num_bytes_per_page * total_page_count;
+    new_memory->end_addr = new_memory->global_data + new_memory->global_data_size;
 
-    new_memory->end_addr = new_memory->global_data + memory->global_data_size;
+    global_data_old = new_memory->memory_data +
+                              new_memory->num_bytes_per_page * old_page_count;
 
-    /* Copy memory data */
-    bh_memcpy_s(new_memory->memory_data,
-                (uint32)(memory->global_data - memory->memory_data),
-                memory->memory_data,
-                (uint32)(memory->global_data - memory->memory_data));
     /* Copy global data */
     bh_memcpy_s(new_memory->global_data, new_memory->global_data_size,
-                memory->global_data, memory->global_data_size);
-    /* Init free space of new memory */
-    memset(new_memory->memory_data + memory->num_bytes_per_page * memory->cur_page_count,
-           0, memory->num_bytes_per_page * (total_page_count - memory->cur_page_count));
-
-    new_memory->heap_data = memory->heap_data;
-    new_memory->heap_data_end = memory->heap_data_end;
-    new_memory->heap_handle = memory->heap_handle;
-    new_memory->heap_base_offset = memory->heap_base_offset;
+                global_data_old, new_memory->global_data_size);
+    memset(global_data_old, 0, new_memory->global_data_size);
 
     module->memories[0] = module->default_memory = new_memory;
-    wasm_free(memory);
     return true;
 #else /* else of WASM_ENABLE_MEMORY_GROW */
     wasm_set_exception(module, "unsupported operation: enlarge memory.");

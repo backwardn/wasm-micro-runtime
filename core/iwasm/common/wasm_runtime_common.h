@@ -10,6 +10,8 @@
 #include "bh_common.h"
 #include "bh_thread.h"
 #include "wasm_exec_env.h"
+#include "wasm_native.h"
+#include "../include/wasm_export.h"
 #include "../interpreter/wasm.h"
 #if WASM_ENABLE_LIBC_WASI != 0
 #include "wasmtime_ssp.h"
@@ -20,15 +22,6 @@
 extern "C" {
 #endif
 
-#define wasm_malloc bh_malloc
-#define wasm_free bh_free
-
-/* Package Type */
-typedef enum {
-    Wasm_Module_Bytecode = 0,
-    Wasm_Module_AoT,
-    Package_Type_Unknown = 0xFFFF
-} PackageType;
 
 typedef struct WASMModuleCommon {
     /* Module type, for module loaded from WASM bytecode binary,
@@ -52,19 +45,6 @@ typedef struct WASMModuleInstanceCommon {
     uint8 module_inst_data[1];
 } WASMModuleInstanceCommon;
 
-typedef void WASMFunctionInstanceCommon;
-
-/* WASM section */
-typedef struct WASMSection {
-    struct WASMSection *next;
-    /* section type */
-    int section_type;
-    /* section body, not include type and size */
-    const uint8 *section_body;
-    /* section body size */
-    uint32 section_body_size;
-} WASMSection, AOTSection;
-
 #if WASM_ENABLE_LIBC_WASI != 0
 typedef struct WASIContext {
     struct fd_table *curfds;
@@ -73,9 +53,16 @@ typedef struct WASIContext {
 } WASIContext;
 #endif
 
+typedef package_type_t PackageType;
+typedef wasm_section_t WASMSection, AOTSection;
+
 /* See wasm_export.h for description */
 bool
 wasm_runtime_init();
+
+/* See wasm_export.h for description */
+bool
+wasm_runtime_full_init(RuntimeInitArgs *init_args);
 
 /* See wasm_export.h for description */
 void
@@ -111,7 +98,7 @@ wasm_runtime_deinstantiate(WASMModuleInstanceCommon *module_inst);
 
 /* See wasm_export.h for description */
 WASMFunctionInstanceCommon *
-wasm_runtime_lookup_function(const WASMModuleInstanceCommon *module_inst,
+wasm_runtime_lookup_function(WASMModuleInstanceCommon * const module_inst,
                              const char *name, const char *signature);
 
 /* See wasm_export.h for description */
@@ -172,7 +159,8 @@ wasm_runtime_get_custom_data(WASMModuleInstanceCommon *module_inst);
 
 /* See wasm_export.h for description */
 int32
-wasm_runtime_module_malloc(WASMModuleInstanceCommon *module_inst, uint32 size);
+wasm_runtime_module_malloc(WASMModuleInstanceCommon *module_inst, uint32 size,
+                           void **p_native_addr);
 
 /* See wasm_export.h for description */
 void
@@ -243,7 +231,7 @@ wasm_runtime_set_wasi_args(WASMModuleCommon *module,
                            const char *dir_list[], uint32 dir_count,
                            const char *map_dir_list[], uint32 map_dir_count,
                            const char *env_list[], uint32 env_count,
-                           const char *argv[], uint32 argc);
+                           char *argv[], int argc);
 
 /* See wasm_export.h for description */
 bool
@@ -258,7 +246,7 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
                        const char *dir_list[], uint32 dir_count,
                        const char *map_dir_list[], uint32 map_dir_count,
                        const char *env[], uint32 env_count,
-                       const char *argv[], uint32 argc,
+                       char *argv[], uint32 argc,
                        char *error_buf, uint32 error_buf_size);
 
 void
@@ -282,9 +270,15 @@ wasm_runtime_get_wasi_ctx(WASMModuleInstanceCommon *module_inst);
 bool
 wasm_runtime_enlarge_memory(WASMModuleInstanceCommon *module, uint32 inc_page_count);
 
+/* See wasm_export.h for description */
 bool
-wasm_runtime_invoke_native(void *func_ptr, WASMType *func_type,
-                           WASMExecEnv *exec_env,
+wasm_runtime_register_natives(const char *module_name,
+                              NativeSymbol *native_symbols,
+                              uint32 n_native_symbols);
+
+bool
+wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
+                           const WASMType *func_type, const char *signature,
                            uint32 *argv, uint32 argc, uint32 *ret);
 
 

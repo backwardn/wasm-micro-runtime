@@ -4,7 +4,6 @@
  */
 
 #include "aot_llvm.h"
-#include "bh_memory.h"
 #include "aot_compiler.h"
 #include "../aot/aot_runtime.h"
 
@@ -47,7 +46,7 @@ aot_add_llvm_func(AOTCompContext *comp_ctx, AOTFuncType *aot_func_type,
     /* Initialize parameter types of the LLVM function */
     size = sizeof(LLVMTypeRef) * ((uint64)param_count);
     if (size >= UINT32_MAX
-        || !(param_types = wasm_malloc((uint32)size))) {
+        || !(param_types = wasm_runtime_malloc((uint32)size))) {
         aot_set_last_error("allocate memory failed.");
         return NULL;
     }
@@ -88,7 +87,7 @@ aot_add_llvm_func(AOTCompContext *comp_ctx, AOTFuncType *aot_func_type,
     }
 
 fail:
-    wasm_free(param_types);
+    wasm_runtime_free(param_types);
     return func;
 }
 
@@ -102,7 +101,7 @@ aot_create_func_block(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     AOTBlock *aot_block;
 
     /* Allocate memory */
-    if (!(aot_block = wasm_malloc(sizeof(AOTBlock)))) {
+    if (!(aot_block = wasm_runtime_malloc(sizeof(AOTBlock)))) {
         aot_set_last_error("allocate memory failed.");
         return NULL;
     }
@@ -129,7 +128,7 @@ aot_create_func_block(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     return aot_block;
 
 fail:
-    wasm_free(aot_block);
+    wasm_runtime_free(aot_block);
     return NULL;
 }
 
@@ -137,7 +136,7 @@ static bool
 create_exception_blocks(AOTFuncContext *func_ctx)
 {
     if (!(func_ctx->exception_blocks =
-                wasm_malloc(sizeof(LLVMBasicBlockRef) * EXCE_NUM))) {
+                wasm_runtime_malloc(sizeof(LLVMBasicBlockRef) * EXCE_NUM))) {
         aot_set_last_error("allocate memory failed.");
         return false;;
     }
@@ -440,8 +439,9 @@ aot_create_func_context(AOTCompData *comp_data, AOTCompContext *comp_ctx,
     AOTFuncContext *func_ctx;
     AOTFuncType *aot_func_type = comp_data->func_types[func->func_type_index];
     AOTBlock *aot_block;
-    LLVMTypeRef int8_ptr_type;
+    LLVMTypeRef int8_ptr_type, int32_ptr_type;
     LLVMValueRef aot_inst_offset = I32_TWO, aot_inst_addr;
+    LLVMValueRef argv_buf_offset = I32_THREE, argv_buf_addr;
     char local_name[32];
     uint64 size;
     uint32 i, j = 0;
@@ -450,7 +450,7 @@ aot_create_func_context(AOTCompData *comp_data, AOTCompContext *comp_ctx,
     size = offsetof(AOTFuncContext, locals) + sizeof(LLVMValueRef) *
                     ((uint64)aot_func_type->param_count + func->local_count);
     if (size >= UINT32_MAX
-        || !(func_ctx = wasm_malloc((uint32)size))) {
+        || !(func_ctx = wasm_runtime_malloc((uint32)size))) {
         aot_set_last_error("allocate memory failed.");
         return NULL;
     }
@@ -476,7 +476,7 @@ aot_create_func_context(AOTCompData *comp_data, AOTCompContext *comp_ctx,
     func_ctx->exec_env = LLVMGetParam(func_ctx->func, j++);
 
     /* Get aot inst address, the layout of exec_env is:
-       exec_env->next, exec_env->prev, and exec_env->module_inst */
+       exec_env->next, exec_env->prev, exec_env->module_inst, and argv_buf */
     if (!(aot_inst_addr =
                 LLVMBuildInBoundsGEP(comp_ctx->builder, func_ctx->exec_env,
                                      &aot_inst_offset, 1, "aot_inst_addr"))) {
@@ -487,6 +487,32 @@ aot_create_func_context(AOTCompData *comp_data, AOTCompContext *comp_ctx,
     /* Load aot inst */
     if (!(func_ctx->aot_inst = LLVMBuildLoad(comp_ctx->builder,
                                              aot_inst_addr, "aot_inst"))) {
+        aot_set_last_error("llvm build load failed");
+        goto fail;
+    }
+
+    /* Get argv buffer address */
+    if (!(argv_buf_addr =
+                LLVMBuildInBoundsGEP(comp_ctx->builder, func_ctx->exec_env,
+                                     &argv_buf_offset, 1, "argv_buf_addr"))) {
+        aot_set_last_error("llvm build in bounds gep failed");
+        goto fail;
+    }
+
+    if (!(int32_ptr_type = LLVMPointerType(INT32_PTR_TYPE, 0))) {
+        aot_set_last_error("llvm add pointer type failed");
+        goto fail;
+    }
+
+    /* Convert to int32 pointer type */
+    if (!(argv_buf_addr = LLVMBuildBitCast(comp_ctx->builder, argv_buf_addr,
+                                           int32_ptr_type, "argv_buf_ptr"))) {
+        aot_set_last_error("llvm build load failed");
+        goto fail;
+    }
+
+    if (!(func_ctx->argv_buf = LLVMBuildLoad(comp_ctx->builder,
+                                             argv_buf_addr, "argv_buf"))) {
         aot_set_last_error("llvm build load failed");
         goto fail;
     }
@@ -578,9 +604,9 @@ aot_create_func_context(AOTCompData *comp_data, AOTCompContext *comp_ctx,
 
 fail:
     if (func_ctx->exception_blocks)
-        wasm_free(func_ctx->exception_blocks);
+        wasm_runtime_free(func_ctx->exception_blocks);
     aot_block_stack_destroy(&func_ctx->block_stack);
-    wasm_free(func_ctx);
+    wasm_runtime_free(func_ctx);
     return NULL;
 }
 
@@ -592,11 +618,11 @@ aot_destroy_func_contexts(AOTFuncContext **func_ctxes, uint32 count)
     for (i = 0; i < count; i++)
         if (func_ctxes[i]) {
             if (func_ctxes[i]->exception_blocks)
-                wasm_free(func_ctxes[i]->exception_blocks);
+                wasm_runtime_free(func_ctxes[i]->exception_blocks);
             aot_block_stack_destroy(&func_ctxes[i]->block_stack);
-            wasm_free(func_ctxes[i]);
+            wasm_runtime_free(func_ctxes[i]);
         }
-    wasm_free(func_ctxes);
+    wasm_runtime_free(func_ctxes);
 }
 
 /**
@@ -612,7 +638,7 @@ aot_create_func_contexts(AOTCompData *comp_data, AOTCompContext *comp_ctx)
     /* Allocate memory */
     size = sizeof(AOTFuncContext*) * (uint64)comp_data->func_count;
     if (size >= UINT32_MAX
-        || !(func_ctxes = wasm_malloc((uint32)size))) {
+        || !(func_ctxes = wasm_runtime_malloc((uint32)size))) {
         aot_set_last_error("allocate memory failed.");
         return NULL;
     }
@@ -674,6 +700,7 @@ aot_create_llvm_consts(AOTLLVMConsts *consts, AOTCompContext *comp_ctx)
     consts->f64_zero = F64_CONST(0);
     consts->i32_one = I32_CONST(1);
     consts->i32_two = I32_CONST(2);
+    consts->i32_three = I32_CONST(3);
     consts->i32_four = I32_CONST(4);
     consts->i32_eight = I32_CONST(8);
     consts->i32_neg_one = I32_CONST((uint32)-1);
@@ -692,6 +719,7 @@ aot_create_llvm_consts(AOTLLVMConsts *consts, AOTCompContext *comp_ctx)
             && consts->f64_zero
             && consts->i32_one
             && consts->i32_two
+            && consts->i32_three
             && consts->i32_four
             && consts->i32_eight
             && consts->i32_neg_one
@@ -848,7 +876,7 @@ aot_create_comp_context(AOTCompData *comp_data,
     LLVMLinkInMCJIT();
 
     /* Allocate memory */
-    if (!(comp_ctx = wasm_malloc(sizeof(AOTCompContext)))) {
+    if (!(comp_ctx = wasm_runtime_malloc(sizeof(AOTCompContext)))) {
         aot_set_last_error("allocate memory failed.");
         return NULL;
     }
@@ -1147,7 +1175,7 @@ aot_destroy_comp_context(AOTCompContext *comp_ctx)
     if (comp_ctx->func_ctxes)
         aot_destroy_func_contexts(comp_ctx->func_ctxes, comp_ctx->func_ctx_count);
 
-    wasm_free(comp_ctx);
+    wasm_runtime_free(comp_ctx);
 }
 
 void
@@ -1187,7 +1215,7 @@ aot_value_stack_destroy(AOTValueStack *stack)
 
     while (value) {
         p = value->next;
-        wasm_free(value);
+        wasm_runtime_free(value);
         value = p;
     }
 }
@@ -1230,7 +1258,7 @@ aot_block_stack_destroy(AOTBlockStack *stack)
     while (block) {
         p = block->next;
         aot_value_stack_destroy(&block->value_stack);
-        wasm_free(block);
+        wasm_runtime_free(block);
         block = p;
     }
 }
@@ -1239,5 +1267,5 @@ void
 aot_block_destroy(AOTBlock *block)
 {
     aot_value_stack_destroy(&block->value_stack);
-    wasm_free(block);
+    wasm_runtime_free(block);
 }

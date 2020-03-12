@@ -93,7 +93,7 @@ static void cleanup_object_list(uint32 module_id)
                 found = true;
                 lv_obj_del(elem->obj);
                 bh_list_remove(&g_object_list, elem);
-                bh_free(elem);
+                wasm_runtime_free(elem);
                 elem = next;
             } else {
                 elem = (object_node_t *)bh_list_elem_next(elem);
@@ -150,7 +150,7 @@ bool wgl_native_add_object(lv_obj_t *obj, uint32 module_id, uint32 *obj_id)
 {
     object_node_t *node;
 
-    node = (object_node_t *) bh_malloc(sizeof(object_node_t));
+    node = (object_node_t *) wasm_runtime_malloc(sizeof(object_node_t));
 
     if (node == NULL)
         return false;
@@ -200,7 +200,7 @@ static void _obj_del_recursive(lv_obj_t *obj)
     while (elem) {
         if (obj == elem->obj) {
             bh_list_remove(&g_object_list, elem);
-            bh_free(elem);
+            wasm_runtime_free(elem);
             vm_mutex_unlock(&g_object_list_mutex);
             return;
         }
@@ -237,7 +237,7 @@ static void post_widget_msg_to_module(object_node_t *object_node, lv_event_t eve
     if (module == NULL)
         return;
 
-    object_event = (object_event_t *)bh_malloc(sizeof(*object_event));
+    object_event = (object_event_t *)wasm_runtime_malloc(sizeof(*object_event));
     if (object_event == NULL)
         return;
 
@@ -378,7 +378,7 @@ static WGLNativeFuncDef obj_native_func_defs[] = {
 /*************** Native Interface to Wasm App ***********/
 void
 wasm_obj_native_call(wasm_exec_env_t exec_env,
-                     int32 func_id, uint32 argv_offset, uint32 argc)
+                     int32 func_id, uint32 *argv, uint32 argc)
 {
     wasm_module_inst_t module_inst = get_module_inst(exec_env);
     uint32 size = sizeof(obj_native_func_defs) / sizeof(WGLNativeFuncDef);
@@ -387,6 +387,6 @@ wasm_obj_native_call(wasm_exec_env_t exec_env,
                          obj_native_func_defs,
                          size,
                          func_id,
-                         argv_offset,
+                         argv,
                          argc);
 }
