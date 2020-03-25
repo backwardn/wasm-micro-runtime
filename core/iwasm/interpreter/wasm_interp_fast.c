@@ -697,10 +697,42 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
     wasm_exec_env_set_cur_frame(exec_env, prev_frame);
 }
 
+#if WASM_ENABLE_OPCODE_COUNTER != 0
+typedef struct OpcodeInfo {
+    char *name;
+    uint64 count;
+} OpcodeInfo;
+
+#define HANDLE_OPCODE(op) { #op, 0 }
+DEFINE_GOTO_TABLE (OpcodeInfo, opcode_table);
+#undef HANDLE_OPCODE
+
+static void
+wasm_interp_dump_op_count()
+{
+    uint32 i;
+    uint64 total_count = 0;
+    for (i = 0; i < WASM_OP_IMPDEP; i++)
+        total_count += opcode_table[i].count;
+
+    printf("total opcode count: %ld\n", total_count);
+    for (i = 0; i < WASM_OP_IMPDEP; i++)
+        if (opcode_table[i].count > 0)
+            printf("\t\t%s count:\t\t%ld,\t\t%.2f%%\n",
+                   opcode_table[i].name, opcode_table[i].count,
+                   opcode_table[i].count * 100.0f / total_count);
+}
+#endif
+
+
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
 
 //#define HANDLE_OP(opcode) HANDLE_##opcode:printf(#opcode"\n");h_##opcode
+#if WASM_ENABLE_OPCODE_COUNTER != 0
+#define HANDLE_OP(opcode) HANDLE_##opcode:opcode_table[opcode].count++;h_##opcode
+#else
 #define HANDLE_OP(opcode) HANDLE_##opcode
+#endif
 #if WASM_ENABLE_FAST_INTERP == 0
 #define FETCH_OPCODE_AND_DISPATCH() goto *handle_table[*frame_ip++]
 #else
@@ -729,7 +761,7 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
 #endif  /* end of WASM_ENABLE_LABELS_AS_VALUES */
 
 #if WASM_ENABLE_FAST_INTERP != 0
-static void *global_handle_table[WASM_INSTRUCTION_NUM] = { 0 };
+static void **global_handle_table;
 #endif
 
 static void
@@ -765,12 +797,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
   #define HANDLE_OPCODE(op) &&HANDLE_##op
-  DEFINE_GOTO_TABLE (handle_table);
+  DEFINE_GOTO_TABLE (const void*, handle_table);
   #undef HANDLE_OPCODE
 #if WASM_ENABLE_FAST_INTERP != 0
   if (exec_env == NULL) {
-      bh_memcpy_s(global_handle_table, sizeof(void*) * WASM_INSTRUCTION_NUM,
-                  handle_table, sizeof(void*) * WASM_INSTRUCTION_NUM);
+      global_handle_table = (void **)handle_table;
       return;
   }
 #endif
@@ -1240,7 +1271,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
           /* fail to memory.grow, return -1 */
           frame_lp[addr_ret] = -1;
           if (wasm_get_exception(module)) {
-            bh_printf("%s\n", wasm_get_exception(module));
+            os_printf("%s\n", wasm_get_exception(module));
             wasm_set_exception(module, NULL);
           }
         }
@@ -2035,19 +2066,20 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
       HANDLE_OP (WASM_OP_TEE_LOCAL):
         {
           GET_LOCAL_INDEX_TYPE_AND_OFFSET();
+          addr1 = GET_OFFSET();
 
-          switch (local_type) {
-            case VALUE_TYPE_I32:
-            case VALUE_TYPE_F32:
-              *(int32*)(frame_lp + local_offset) = GET_OPERAND(uint32, 0);
-              break;
-            case VALUE_TYPE_I64:
-            case VALUE_TYPE_F64:
-              PUT_I64_TO_ADDR((uint32*)(frame_lp + local_offset), GET_OPERAND(uint64, 0));
-              break;
-            default:
-              wasm_set_exception(module, "invalid local type");
-              goto got_exception;
+          if (local_type == VALUE_TYPE_I32
+              || local_type == VALUE_TYPE_F32) {
+            *(int32*)(frame_lp + local_offset) = frame_lp[addr1];
+          }
+          else if (local_type == VALUE_TYPE_I64
+              || local_type == VALUE_TYPE_F64) {
+            PUT_I64_TO_ADDR((uint32*)(frame_lp + local_offset),
+                  GET_I64_FROM_ADDR(frame_lp + addr1));
+          }
+          else {
+            wasm_set_exception(module, "invalid local type");
+            goto got_exception;
           }
 
           HANDLE_OP_END ();
@@ -2287,4 +2319,7 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst,
 
     wasm_exec_env_set_cur_frame(exec_env, prev_frame);
     FREE_FRAME(exec_env, frame);
+#if WASM_ENABLE_OPCODE_COUNTER != 0
+    wasm_interp_dump_op_count();
+#endif
 }

@@ -140,6 +140,7 @@ GET_U64_FROM_ADDR(uint32 *addr)
 #define E_MACHINE_MIPS      8       /* MIPS R3000 big-endian */
 #define E_MACHINE_MIPS_RS3_LE  10   /* MIPS R3000 little-endian */
 #define E_MACHINE_ARM      40       /* ARM/Thumb */
+#define E_MACHINE_AARCH64  183      /* AArch64 */
 #define E_MACHINE_ARC      45       /* Argonaut RISC Core */
 #define E_MACHINE_IA_64    50       /* Intel Merced */
 #define E_MACHINE_MIPS_X   51       /* Stanford MIPS-X */
@@ -196,6 +197,7 @@ get_aot_file_target(AOTTargetInfo *target_info,
             machine_type = "i386";
             break;
         case E_MACHINE_ARM:
+        case E_MACHINE_AARCH64:
             machine_type = target_info->arch;
             break;
         case E_MACHINE_MIPS:
@@ -614,6 +616,7 @@ load_import_globals(const uint8 **p_buf, const uint8 *buf_end,
 
     /* Create each import global */
     for (i = 0; i < module->import_global_count; i++) {
+        buf = (uint8*)align_ptr(buf, 2);
         read_uint8(buf, buf_end, import_globals[i].type);
         read_uint8(buf, buf_end, import_globals[i].is_mutable);
         read_string(buf, buf_end, import_globals[i].module_name);
@@ -829,7 +832,7 @@ destroy_object_data_sections(AOTObjectDataSection *data_sections,
     AOTObjectDataSection *data_section = data_sections;
     for (i = 0; i < data_section_count; i++, data_section++)
         if (data_section->data)
-            bh_munmap(data_section->data, data_section->size);
+            os_munmap(data_section->data, data_section->size);
     wasm_runtime_free(data_sections);
 }
 
@@ -872,7 +875,7 @@ load_object_data_sections(const uint8 **p_buf, const uint8 *buf_end,
 
         /* Allocate memory for data */
         if (!(data_sections[i].data =
-                    bh_mmap(NULL, data_sections[i].size, map_prot, map_flags))) {
+                    os_mmap(NULL, data_sections[i].size, map_prot, map_flags))) {
             set_error_buf(error_buf, error_buf_size,
                           "AOT module load failed: "
                           "allocate memory failed.");
@@ -1594,7 +1597,7 @@ load_from_sections(AOTModule *module, AOTSection *sections,
 
     /* Flush data cache before executing AOT code,
      * otherwise unpredictable behavior can occur. */
-    bh_dcache_flush();
+    os_dcache_flush();
 
     return true;
 }
@@ -1668,7 +1671,7 @@ destroy_sections(AOTSection *section_list, bool destroy_aot_text)
         if (destroy_aot_text
             && section->section_type == AOT_SECTION_TYPE_TEXT
             && section->section_body)
-            bh_munmap((uint8*)section->section_body, section->section_body_size);
+            os_munmap((uint8*)section->section_body, section->section_body_size);
         wasm_runtime_free(section);
         section = next;
     }
@@ -1719,7 +1722,7 @@ create_sections(const uint8 *buf, uint32 size,
                     total_size = (uint64)section_size + aot_get_plt_table_size();
                     total_size = (total_size + 3) & ~((uint64)3);
                     if (total_size >= UINT32_MAX
-                        || !(aot_text = bh_mmap(NULL, (uint32)total_size,
+                        || !(aot_text = os_mmap(NULL, (uint32)total_size,
                                                 map_prot, map_flags))) {
                         wasm_runtime_free(section);
                         set_error_buf(error_buf, error_buf_size,
@@ -2075,7 +2078,7 @@ aot_unload(AOTModule *module)
         bh_hash_map_destroy(module->const_str_set);
 
     if (module->code)
-        bh_munmap(module->code, module->code_size);
+        os_munmap(module->code, module->code_size);
 
     if (module->data_sections)
         destroy_object_data_sections(module->data_sections,

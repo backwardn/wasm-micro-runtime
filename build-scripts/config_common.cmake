@@ -3,24 +3,6 @@
 
 string(TOUPPER ${WAMR_BUILD_TARGET} WAMR_BUILD_TARGET)
 
-# Add definitions for the build platform
-if (WAMR_BUILD_PLATFORM STREQUAL "linux")
-  add_definitions(-DBH_PLATFORM_LINUX)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "linux-sgx")
-  add_definitions(-DBH_PLATFORM_LINUX_SGX)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "zephyr")
-  add_definitions(-DBH_PLATFORM_ZEPHYR)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "vxworks")
-  add_definitions(-DBH_PLATFORM_VXWORKS)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "darwin")
-  add_definitions(-DBH_PLATFORM_DARWIN)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "alios-things")
-  add_definitions(-DBH_PLATFORM_ALIOS_THINGS)
-elseif (WAMR_BUILD_PLATFORM STREQUAL "android")
-  add_definitions(-DBH_PLATFORM_ANDROID)
-else ()
-  message (WARNING "-- WAMR build platform isn't set")
-endif ()
 
 # Add definitions for the build target
 if (WAMR_BUILD_TARGET STREQUAL "X86_64")
@@ -45,6 +27,9 @@ elseif (WAMR_BUILD_TARGET MATCHES "THUMB.*")
     add_definitions(-DBUILD_TARGET_THUMB)
     add_definitions(-DBUILD_TARGET="${WAMR_BUILD_TARGET}")
   endif ()
+elseif (WAMR_BUILD_TARGET MATCHES "AARCH64.*")
+  add_definitions(-DBUILD_TARGET_AARCH64)
+  add_definitions(-DBUILD_TARGET="${WAMR_BUILD_TARGET}")
 elseif (WAMR_BUILD_TARGET STREQUAL "MIPS")
   add_definitions(-DBUILD_TARGET_MIPS)
 elseif (WAMR_BUILD_TARGET STREQUAL "XTENSA")
@@ -53,8 +38,12 @@ else ()
    message (FATAL_ERROR "-- WAMR build target isn't set")
 endif ()
 
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_definitions(-DBH_DEBUG=1)
+endif ()
+
 if (CMAKE_SIZEOF_VOID_P EQUAL 8)
-  if (WAMR_BUILD_TARGET STREQUAL "X86_64" OR WAMR_BUILD_TARGET STREQUAL "AMD_64")
+  if (WAMR_BUILD_TARGET STREQUAL "X86_64" OR WAMR_BUILD_TARGET STREQUAL "AMD_64" OR WAMR_BUILD_TARGET MATCHES "AARCH64.*")
     # Add -fPIC flag if build as 64-bit
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
     set (CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "${CMAKE_SHARED_LIBRARY_LINK_C_FLAGS} -fPIC")
