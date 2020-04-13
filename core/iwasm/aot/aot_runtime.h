@@ -18,9 +18,6 @@
 extern "C" {
 #endif
 
-#define AOT_MAGIC_NUMBER 0x746f6100
-#define AOT_CURRENT_VERSION 1
-
 typedef enum AOTExceptionID {
     EXCE_UNREACHABLE = 0,
     EXCE_OUT_OF_MEMORY,
@@ -125,6 +122,10 @@ typedef struct AOTModule {
     void *code;
     uint32 code_size;
 
+    /* literal for AOTed code, NULL for JIT mode */
+    uint8 *literal;
+    uint32 literal_size;
+
     /* data sections in AOT object file, including .data, .rodata
      * and .rodata.cstN. NULL for JIT mode. */
     AOTObjectDataSection *data_sections;
@@ -196,19 +197,27 @@ typedef struct AOTModuleInstance {
     /* WASI context */
     AOTPointer wasi_ctx;
 
+    /* total memory size: heap and linear memory */
+    uint32 total_mem_size;
+
+    /* boundary check constants for aot code */
+    uint32 mem_bound_check_1byte;
+    uint32 mem_bound_check_2bytes;
+    uint32 mem_bound_check_4bytes;
+    uint32 mem_bound_check_8bytes;
+
     /* others */
     int32 temp_ret;
     uint32 llvm_stack;
-    int32 DYNAMICTOP_PTR_offset;
     uint32 default_wasm_stack_size;
 
     /* reserved */
-    uint32 reserved[16];
+    uint32 reserved[12];
 
     union {
         uint64 _make_it_8_byte_aligned_;
         uint8 bytes[1];
-    } global_table_heap_data;
+    } global_table_data;
 } AOTModuleInstance;
 
 typedef AOTExportFunc AOTFunctionInstance;
@@ -437,12 +446,13 @@ aot_is_wasm_type_equal(AOTModuleInstance *module_inst,
  */
 bool
 aot_invoke_native(WASMExecEnv *exec_env, uint32 func_idx,
-                  uint32 *frame_lp, uint32 argc, uint32 *argv_ret);
+                  uint32 argc, uint32 *argv);
 
 bool
 aot_call_indirect(WASMExecEnv *exec_env,
-                  uint32 func_type_idx, uint32 table_elem_idx,
-                  uint32 *frame_lp, uint32 argc, uint32 *argv_ret);
+                  bool check_func_type, uint32 func_type_idx,
+                  uint32 table_elem_idx,
+                  uint32 argc, uint32 *argv);
 
 uint32
 aot_get_plt_table_size();
