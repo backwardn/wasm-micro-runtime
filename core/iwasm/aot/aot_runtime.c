@@ -635,11 +635,10 @@ aot_validate_app_addr(AOTModuleInstance *module_inst,
         goto fail;
     }
 
-    if (app_offset <= module_inst->heap_base_offset
-        || app_offset + (int32)size > (int32)module_inst->memory_data_size) {
-        goto fail;
+    if (module_inst->heap_base_offset <= app_offset
+        && app_offset + (int32)size <= (int32)module_inst->memory_data_size) {
+        return true;
     }
-    return true;
 fail:
     aot_set_exception(module_inst, "out of bounds memory access");
     return false;
@@ -657,12 +656,11 @@ aot_validate_native_addr(AOTModuleInstance *module_inst,
         goto fail;
     }
 
-    if (addr <= (uint8*)module_inst->heap_data.ptr
-        || addr + size > (uint8*)module_inst->memory_data.ptr
-                         + memory_data_size) {
-        goto fail;
+    if ((uint8*)module_inst->heap_data.ptr <= addr
+        && addr + size <= (uint8*)module_inst->memory_data.ptr
+                          + memory_data_size) {
+        return true;
     }
-    return true;
 fail:
     aot_set_exception(module_inst, "out of bounds memory access");
     return false;
@@ -674,7 +672,7 @@ aot_addr_app_to_native(AOTModuleInstance *module_inst, int32 app_offset)
     int32 memory_data_size = (int32)module_inst->memory_data_size;
     uint8 *addr = (uint8 *)module_inst->memory_data.ptr + app_offset;
 
-    if ((uint8*)module_inst->heap_data.ptr < addr
+    if ((uint8*)module_inst->heap_data.ptr <= addr
         && addr < (uint8*)module_inst->memory_data.ptr
                   + memory_data_size)
         return addr;
@@ -687,7 +685,7 @@ aot_addr_native_to_app(AOTModuleInstance *module_inst, void *native_ptr)
     uint8 *addr = (uint8*)native_ptr;
     int32 memory_data_size = (int32)module_inst->memory_data_size;
 
-    if ((uint8*)module_inst->heap_data.ptr < addr
+    if ((uint8*)module_inst->heap_data.ptr <= addr
         && addr < (uint8*)module_inst->memory_data.ptr
                   + memory_data_size)
         return (int32)(addr - (uint8*)module_inst->memory_data.ptr);
@@ -702,7 +700,7 @@ aot_get_app_addr_range(AOTModuleInstance *module_inst,
 {
     int32 memory_data_size = (int32)module_inst->memory_data_size;
 
-    if (module_inst->heap_base_offset < app_offset
+    if (module_inst->heap_base_offset <= app_offset
         && app_offset < memory_data_size) {
         if (p_app_start_offset)
             *p_app_start_offset = module_inst->heap_base_offset;
@@ -722,7 +720,7 @@ aot_get_native_addr_range(AOTModuleInstance *module_inst,
     uint8 *addr = (uint8*)native_ptr;
     int32 memory_data_size = (int32)module_inst->memory_data_size;
 
-    if ((uint8*)module_inst->heap_data.ptr < addr
+    if ((uint8*)module_inst->heap_data.ptr <= addr
         && addr < (uint8*)module_inst->memory_data.ptr
                   + memory_data_size) {
         if (p_native_start_addr)
@@ -897,6 +895,15 @@ aot_call_indirect(WASMExecEnv *exec_env,
     void *attachment = NULL;
     char buf[128];
 
+    /* this function is called from native code, so exec_env->handle and
+       exec_env->native_stack_boundary must have been set, we don't set
+       it again */
+
+    if ((uint8*)&module_inst < exec_env->native_stack_boundary) {
+        aot_set_exception_with_id(module_inst, EXCE_NATIVE_STACK_OVERFLOW);
+        return false;
+    }
+
     if (table_elem_idx >= table_size) {
         aot_set_exception_with_id(module_inst, EXCE_UNDEFINED_ELEMENT);
         return false;
@@ -939,15 +946,6 @@ aot_call_indirect(WASMExecEnv *exec_env,
                                                   attachment,
                                                   argv, argc, argv);
         }
-    }
-
-    /* this function is called from native code, so exec_env->handle and
-       exec_env->native_stack_boundary must have been set, we don't set
-       it again */
-
-    if ((uint8*)&module_inst < exec_env->native_stack_boundary) {
-        aot_set_exception_with_id(module_inst, EXCE_NATIVE_STACK_OVERFLOW);
-        return false;
     }
 
     return wasm_runtime_invoke_native(exec_env, func_ptr,
